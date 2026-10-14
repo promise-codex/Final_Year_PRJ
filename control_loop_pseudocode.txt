@@ -1,0 +1,14 @@
+Non-blocking interlock loop (runs every cycle)
+T_stale = 2 s, T_latch = 3 s
+
+1.  read presence byte H from serial (non-blocking)
+2.  if no serial update for T_stale:
+3.      H = 1            # fail-safe: assume someone is inside
+4.  if H == 1:
+5.      hold door unlocked; reset the clear timer
+6.  else if door is unlocked and bay has been clear for >= T_latch:
+7.      latch door (M = 1)
+8.  if valid card and Pr == 0 and door is latched:
+9.      unlock door for entry
+10. P = (M AND NOT H AND Pr)   # pressurise only when sealed, clear, rising
+11. update LCD and buzzer
