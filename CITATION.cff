@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite both the paper and this archive."
+title: "Vision-Gated Safety Interlock for High-Pressure Test Bays"
+authors:
+  - family-names: "Osunyemi"
+    given-names: "Promise O."
+    affiliation: "Obafemi Awolowo University"
+license: MIT
