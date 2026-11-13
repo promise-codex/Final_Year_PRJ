@@ -1,14 +1,23 @@
-Non-blocking interlock loop (runs every cycle)
+Interlock loop (runs every cycle; mirrors PressureRoomLock_CV.ino)
 T_stale = 2 s, T_latch = 3 s
+Door states: LATCHED, UNLOCKED, CLEARING
 
 1.  read presence byte H from serial (non-blocking)
 2.  if no serial update for T_stale:
-3.      H = 1            # fail-safe: assume someone is inside
-4.  if H == 1:
-5.      hold door unlocked; reset the clear timer
-6.  else if door is unlocked and bay has been clear for >= T_latch:
-7.      latch door (M = 1)
-8.  if valid card and Pr == 0 and door is latched:
-9.      unlock door for entry
-10. P = (M AND NOT H AND Pr)   # pressurise only when sealed, clear, rising
-11. update LCD and buzzer
+3.      H = 1                      # fail-safe: assume someone is inside
+4.  if state == LATCHED:
+5.      if valid card and Pr == 0:
+6.          state = UNLOCKED       # entry only at zero pressure
+7.      # a person seen while LATCHED does not unlock the door;
+8.      # it only removes the pressurisation permission (step 15)
+9.  else if state == UNLOCKED:
+10.     if H == 0: state = CLEARING; start clear timer
+11. else if state == CLEARING:
+12.     if H == 1: state = UNLOCKED    # person seen again, timer restarts
+13.     else if clear timer >= T_latch: state = LATCHED
+14. M = (state == LATCHED)
+15. P = M AND (NOT H) AND Pr        # pressurise only when sealed, clear, rising
+16. update LCD and buzzer
+
+Note: after a card read the firmware shows a message for up to 2 s. Presence
+is still read during that wait and latching is only postponed, which is safe.

@@ -1,6 +1,13 @@
 % Builds the Simulink/Stateflow model of the interlock logic and runs a
-% test scenario. Logic: M = ~H, P = M & ~H & Pr, entry on A & (Pr==0),
-% auto-latch 3 s after the bay goes clear.
+% test scenario. It mirrors PressureRoomLock_CV.ino:
+%   LATCHED  -> UNLOCKED  on a valid card with zero pressure (A & Pr==0)
+%   UNLOCKED -> CLEARING  when the bay reads clear (H==0)
+%   CLEARING -> UNLOCKED  if a person is seen again (H==1), timer restarts
+%   CLEARING -> LATCHED   after the bay has stayed clear for 3 s
+% Outputs: M = 1 only in LATCHED, P = M & ~H & Pr.
+% v1.1: the clear timer now starts when the bay goes clear, not when the
+% door unlocks (v1.0 used after(3,sec)[H==0] on UNLOCKED, which latched
+% as soon as H fell if the door had been open for 3 s or more).
 
 function build_interlock_model()
 
@@ -54,6 +61,15 @@ function build_interlock_model()
         '  M = 0;\n' ...
         '  P = 0;']);
 
+    sClearing = Stateflow.State(chart);
+    sClearing.Name = 'CLEARING';
+    sClearing.Position = [260 200 150 90];
+    sClearing.LabelString = sprintf([ ...
+        'CLEARING\n' ...
+        'en,du:\n' ...
+        '  M = 0;\n' ...
+        '  P = 0;']);
+
     % start in LATCHED
     dflt = Stateflow.Transition(chart);
     dflt.Destination = sLatched;
@@ -69,13 +85,29 @@ function build_interlock_model()
     t1.SourceOClock = 6;
     t1.DestinationOClock = 12;
 
-    % bay clear for 3 s -> latch again
+    % bay reads clear -> start the clear timer
     t2 = Stateflow.Transition(chart);
     t2.Source = sUnlocked;
-    t2.Destination = sLatched;
-    t2.LabelString = sprintf('after(%d,sec) [H == 0]', CLEAR_SECS);
-    t2.SourceOClock = 12;
-    t2.DestinationOClock = 6;
+    t2.Destination = sClearing;
+    t2.LabelString = '[H == 0]';
+    t2.SourceOClock = 3;
+    t2.DestinationOClock = 9;
+
+    % person seen again -> back to UNLOCKED (timer restarts)
+    t3 = Stateflow.Transition(chart);
+    t3.Source = sClearing;
+    t3.Destination = sUnlocked;
+    t3.LabelString = '[H == 1]';
+    t3.SourceOClock = 8;
+    t3.DestinationOClock = 4;
+
+    % clear for CLEAR_SECS -> latch
+    t4 = Stateflow.Transition(chart);
+    t4.Source = sClearing;
+    t4.Destination = sLatched;
+    t4.LabelString = sprintf('after(%d,sec)', CLEAR_SECS);
+    t4.SourceOClock = 12;
+    t4.DestinationOClock = 3;
 
     add_block('simulink/Sinks/Scope', [modelName '/Scope'], ...
         'Position',[460 90 510 190]);
@@ -88,6 +120,12 @@ function build_interlock_model()
     add_line(modelName,'InterlockLogic/1','Mux/1','autorouting','on');
     add_line(modelName,'InterlockLogic/2','Mux/2','autorouting','on');
     add_line(modelName,'Mux/1','Scope/1','autorouting','on');
+
+    % root outports so the run returns M and P for checking
+    add_block('simulink/Sinks/Out1', [modelName '/Mout'], 'Position',[460 230 490 244]);
+    add_block('simulink/Sinks/Out1', [modelName '/Pout'], 'Position',[460 270 490 284]);
+    add_line(modelName,'InterlockLogic/1','Mout/1','autorouting','on');
+    add_line(modelName,'InterlockLogic/2','Pout/1','autorouting','on');
 
     p = get_param([modelName '/InterlockLogic'],'PortHandles');
     set_param(p.Outport(1),'Name','M');
@@ -121,8 +159,21 @@ function build_interlock_model()
 
     save_system(modelName);
     fprintf('Built %s, simulating...\n', modelName);
-    sim(modelName);
+    out = sim(modelName, 'SaveOutput','on', 'OutputSaveName','yout', 'SaveFormat','Dataset');
     fprintf('Done. Open the Scope for M and P.\n');
+
+    % print the switching times so they can be checked against the paper
+    % (expected: M falls at 7.00 s and rises at 15.00 s;
+    %            P rises at 2.00 s, falls at 5.00 s, rises at 16.00 s)
+    try
+        ys = out.yout;
+        tM = ys{1}.Values.Time; M = ys{1}.Values.Data;
+        tP = ys{2}.Values.Time; P = ys{2}.Values.Data;
+        fprintf('M edges (s): %s\n', mat2str(tM(find(diff(M))+1)', 4));
+        fprintf('P edges (s): %s\n', mat2str(tP(find(diff(P))+1)', 4));
+    catch
+        fprintf('Read the edges from the Scope: M down 7 s, up 15 s; P up 2 s, down 5 s, up 16 s.\n');
+    end
 
 end
 
