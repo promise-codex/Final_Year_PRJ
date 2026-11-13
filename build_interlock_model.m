@@ -22,17 +22,16 @@ function build_interlock_model()
 
     % inputs as From Workspace blocks (timeseries built below)
     add_block('simulink/Sources/From Workspace', [modelName '/A'],  ...
-        'VariableName','A_ts',  'Position',[30  40  90  70]);
+        'VariableName','A_ts', 'Interpolate','off', 'OutputAfterFinalValue','Holding final value',  'Position',[30  40  90  70]);
     add_block('simulink/Sources/From Workspace', [modelName '/H'],  ...
-        'VariableName','H_ts',  'Position',[30 110  90 140]);
+        'VariableName','H_ts', 'Interpolate','off', 'OutputAfterFinalValue','Holding final value',  'Position',[30 110  90 140]);
     add_block('simulink/Sources/From Workspace', [modelName '/Pr'], ...
-        'VariableName','Pr_ts', 'Position',[30 180  90 210]);
+        'VariableName','Pr_ts', 'Interpolate','off', 'OutputAfterFinalValue','Holding final value', 'Position',[30 180  90 210]);
 
-    % chart via the Stateflow API so we get the handle directly
-    mdlHandle = get_param(modelName,'Handle');
-    chart = Stateflow.Chart(mdlHandle);
-    chart.Name     = 'InterlockLogic';
-    chart.Position = [180 60 380 220];
+    % chart block from the Stateflow library, then its API handle
+    load_system('sflib');
+    add_block('sflib/Chart', [modelName '/InterlockLogic'], 'Position',[180 60 380 220]);
+    chart = find(sfroot, '-isa','Stateflow.Chart', 'Path',[modelName '/InterlockLogic']);
     assert(~isempty(chart) && isvalid(chart), ...
         'Could not create the Stateflow chart in %s.', modelName);
 
@@ -50,7 +49,7 @@ function build_interlock_model()
         'LATCHED\n' ...
         'en,du:\n' ...
         '  M = 1;\n' ...
-        '  P = (Pr == 1) && (H == 0);']);
+        '  P = Pr * (1 - H);']);
 
     sUnlocked = Stateflow.State(chart);
     sUnlocked.Name = 'UNLOCKED';
